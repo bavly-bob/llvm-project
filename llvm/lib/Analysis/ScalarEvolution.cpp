@@ -13567,11 +13567,27 @@ ScalarEvolution::howManyLessThans(const SCEV *LHS, const SCEV *RHS,
         Stride = getUMaxExpr(Stride, getOne(Stride->getType()));
       }
     }
-  } else if (!NoWrap) {
+  }else if (!NoWrap) {
     // Avoid proven overflow cases: this will ensure that the backedge taken
     // count will not generate any unsigned overflow.
-    if (canIVOverflowOnLT(RHS, Stride, IsSigned))
-      return getCouldNotCompute();
+    if (canIVOverflowOnLT(RHS, Stride, IsSigned)) {
+      if (!AllowPredicates)
+        return getCouldNotCompute();
+
+      unsigned BitWidth = getTypeSizeInBits(RHS->getType());
+      const SCEV *One = getOne(Stride->getType());
+      const SCEV *StrideMinusOne = getMinusSCEV(Stride, One);
+
+      APInt MaxStrideMinusOne = IsSigned ? getSignedRangeMax(StrideMinusOne)
+                                         : getUnsignedRangeMax(StrideMinusOne);
+      APInt Limit = (IsSigned ? APInt::getSignedMaxValue(BitWidth)
+                              : APInt::getMaxValue(BitWidth)) -
+                    MaxStrideMinusOne;
+
+      Predicates.push_back(getComparePredicate(
+          IsSigned ? ICmpInst::ICMP_SLE : ICmpInst::ICMP_ULE, RHS,
+          getConstant(Limit)));
+    }
   }
 
   // On all paths just preceeding, we established the following invariant:
